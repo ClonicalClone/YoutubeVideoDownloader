@@ -41,7 +41,7 @@ interface DownloadData {
 export default function Home() {
   const [url, setUrl] = useState("");
   const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
-  const [selectedFormat, setSelectedFormat] = useState("mp4");
+  const [selectedFormat, setSelectedFormat] = useState("mp4-1080p");
   const [activeDownload, setActiveDownload] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -139,7 +139,7 @@ export default function Home() {
     setUrl("");
     setVideoInfo(null);
     setActiveDownload(null);
-    setSelectedFormat("mp4");
+    setSelectedFormat("mp4-1080p");
   };
 
   const isDownloadCompleted = downloadStatus?.status === "completed";
@@ -149,7 +149,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-void-black">
       {/* Header */}
-      <header className="py-8 text-center border-b border-dark-gray">
+      <header className="py-8 text-center border-b border-pure-white">
         <h1 className="text-4xl font-bold mb-2 text-pure-white">YouTube Downloader</h1>
         <p className="text-gray-300 text-lg">Download videos in maximum quality with audio</p>
       </header>
@@ -158,7 +158,7 @@ export default function Home() {
       <main className="container mx-auto px-4 py-12 max-w-4xl">
         {/* URL Input Section */}
         <section className="mb-12">
-          <Card className="bg-dark-gray border-gray-700">
+          <Card className="bg-void-black border-pure-white">
             <CardHeader>
               <CardTitle className="text-2xl text-center text-pure-white">Enter YouTube URL</CardTitle>
             </CardHeader>
@@ -169,7 +169,7 @@ export default function Home() {
                   placeholder="https://www.youtube.com/watch?v=..."
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  className="w-full bg-void-black border-gray-600 text-pure-white placeholder-gray-400 focus:border-pure-white pr-10"
+                  className="w-full bg-void-black border-pure-white text-pure-white placeholder-gray-400 focus:border-pure-white pr-10"
                 />
                 <Link className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               </div>
@@ -190,7 +190,7 @@ export default function Home() {
                 <Button
                   onClick={handleClear}
                   variant="outline"
-                  className="border-gray-600 text-pure-white hover:border-pure-white hover:bg-dark-gray"
+                  className="border-pure-white text-pure-white hover:border-pure-white hover:bg-void-black"
                 >
                   <X className="mr-2 h-4 w-4" />
                   Clear
@@ -203,7 +203,7 @@ export default function Home() {
         {/* Video Info Section */}
         {videoInfo && (
           <section className="mb-12">
-            <Card className="bg-dark-gray border-gray-700">
+            <Card className="bg-void-black border-pure-white">
               <CardHeader>
                 <CardTitle className="text-2xl text-pure-white">Video Information</CardTitle>
               </CardHeader>
@@ -214,7 +214,7 @@ export default function Home() {
                     <img
                       src={videoInfo.thumbnail}
                       alt="Video thumbnail"
-                      className="w-full rounded-lg border border-gray-600"
+                      className="w-full rounded-lg border border-pure-white"
                       onError={(e) => {
                         e.currentTarget.src = "https://images.unsplash.com/photo-1611224923853-80b023f02d71?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=450";
                       }}
@@ -254,7 +254,7 @@ export default function Home() {
                         <h4 className="text-lg font-medium mb-3 text-pure-white">Available Quality</h4>
                         <div className="space-y-2">
                           {videoInfo.availableFormats.slice(0, 3).map((format, index) => (
-                            <div key={index} className="flex items-center justify-between p-3 bg-void-black rounded border border-gray-600">
+                            <div key={index} className="flex items-center justify-between p-3 bg-void-black rounded border border-pure-white">
                               <div className="flex items-center">
                                 <Video className="mr-3 h-4 w-4 text-gray-400" />
                                 <span className="font-medium text-pure-white">{format.quality} {format.format.toUpperCase()}</span>
@@ -276,7 +276,7 @@ export default function Home() {
         {/* Download Section */}
         {videoInfo && (
           <section className="mb-12">
-            <Card className="bg-dark-gray border-gray-700">
+            <Card className="bg-void-black border-pure-white">
               <CardHeader>
                 <CardTitle className="text-2xl text-pure-white">Download Options</CardTitle>
               </CardHeader>
@@ -284,11 +284,14 @@ export default function Home() {
                 {/* Format Selection */}
                 <div>
                   <label className="block text-sm font-medium mb-3 text-pure-white">Download Format</label>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {[
-                      { value: "mp4", title: "MP4 (Video + Audio)", desc: "Best compatibility", icon: Video },
-                      { value: "mp3", title: "MP3 (Audio Only)", desc: "Smaller file size", icon: Volume2 },
-                      { value: "webm", title: "WEBM", desc: "High compression", icon: Video },
+                      { value: "mp4-1080p", title: "1080p MP4", desc: "Full HD quality", icon: Video },
+                      { value: "mp4-720p", title: "720p MP4", desc: "HD quality", icon: Video },
+                      { value: "mp4-480p", title: "480p MP4", desc: "Standard quality", icon: Video },
+                      { value: "mp4", title: "Best MP4", desc: "Highest available", icon: Video },
+                      { value: "mp3", title: "MP3 Audio", desc: "Audio only", icon: Volume2 },
+                      { value: "webm", title: "WEBM", desc: "Smaller size", icon: Video },
                     ].map((format) => (
                       <label
                         key={format.value}
@@ -296,7 +299,7 @@ export default function Home() {
                           "flex items-center p-4 bg-void-black rounded-lg border cursor-pointer transition-colors",
                           selectedFormat === format.value
                             ? "border-pure-white"
-                            : "border-gray-600 hover:border-pure-white"
+                            : "border-pure-white hover:border-pure-white"
                         )}
                       >
                         <input
@@ -387,7 +390,7 @@ export default function Home() {
 
         {/* Features Section */}
         <section className="mb-12">
-          <Card className="bg-dark-gray border-gray-700">
+          <Card className="bg-void-black border-pure-white">
             <CardHeader>
               <CardTitle className="text-2xl text-center text-pure-white">Features</CardTitle>
             </CardHeader>

@@ -27,7 +27,7 @@
   /* Custom void black theme colors */
   --void-black: hsl(0, 0%, 0%);
   --pure-white: hsl(0, 0%, 100%);
-  --dark-gray: hsl(0, 0%, 20%);
+  --dark-gray: hsl(0, 0%, 0%);
   --success-green: hsl(120, 100%, 50%);
   --error-red: hsl(0, 100%, 50%);
   --warning-yellow: hsl(60, 100%, 50%);
@@ -82,7 +82,7 @@
   }
   
   .bg-dark-gray {
-    background-color: hsl(0, 0%, 20%);
+    background-color: hsl(0, 0%, 0%);
   }
   
   .text-success-green {

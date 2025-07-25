@@ -12,10 +12,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { url } = videoAnalysisSchema.parse(req.body);
       
-      // Use yt-dlp to extract video information
+      // Use yt-dlp to extract video information with better options
       const ytdlp = spawn("yt-dlp", [
         "--dump-json",
         "--no-download",
+        "--no-warnings",
+        "--prefer-free-formats",
         url
       ]);
 
@@ -136,12 +138,21 @@ async function startDownload(downloadId: string, url: string, format: string) {
     let args = [
       "--output", outputTemplate,
       "--progress",
+      "--no-warnings",
+      "--prefer-free-formats",
+      "--retries", "3",
       url
     ];
 
-    // Add format-specific arguments
+    // Add format-specific arguments with higher quality options
     if (format === "mp3") {
-      args.push("--extract-audio", "--audio-format", "mp3");
+      args.push("--extract-audio", "--audio-format", "mp3", "--audio-quality", "0");
+    } else if (format === "mp4-1080p") {
+      args.push("--format", "best[height<=1080][ext=mp4]/best[height<=1080]/best[ext=mp4]/best");
+    } else if (format === "mp4-720p") {
+      args.push("--format", "best[height<=720][ext=mp4]/best[height<=720]/best[ext=mp4]/best");
+    } else if (format === "mp4-480p") {
+      args.push("--format", "best[height<=480][ext=mp4]/best[height<=480]/best[ext=mp4]/best");
     } else if (format === "mp4") {
       args.push("--format", "best[ext=mp4]/best");
     } else if (format === "webm") {
@@ -167,7 +178,18 @@ async function startDownload(downloadId: string, url: string, format: string) {
     });
 
     ytdlp.stderr.on("data", (data) => {
-      console.error("yt-dlp stderr:", data.toString());
+      const output = data.toString();
+      console.error("yt-dlp stderr:", output);
+      
+      // Also check for progress in stderr output
+      const progressMatch = output.match(/(\d+(?:\.\d+)?)%/);
+      if (progressMatch) {
+        const progress = Math.round(parseFloat(progressMatch[1]));
+        if (progress > lastProgress) {
+          lastProgress = progress;
+          storage.updateDownload(downloadId, { progress });
+        }
+      }
     });
 
     ytdlp.on("close", async (code) => {
