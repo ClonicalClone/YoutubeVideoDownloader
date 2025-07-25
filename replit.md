@@ -70,7 +70,17 @@ Preferred communication style: Simple, everyday language.
 ### Core Dependencies
 - **@neondatabase/serverless**: Serverless PostgreSQL driver
 - **drizzle-orm**: Type-safe SQL ORM for database operations
-- **yt-dlp**: Python-based YouTube video downloader (external CLI tool)
+- **yt-dlp**: Python-based YouTube video downloader (external CLI tool, used for metadata extraction)
+- **ytdl-core**: Node.js YouTube downloader library (Strategy 1 fallback)
+- **youtube-dl-exec**: Alternative YouTube downloader (Strategy 2 - currently most reliable)
+
+### Download Strategy Implementation
+The application now uses a multi-library approach to overcome YouTube's anti-bot restrictions:
+1. **Strategy 1**: ytdl-core (Node.js native library) - Fast but often blocked by YouTube
+2. **Strategy 2**: youtube-dl-exec (Wrapper for youtube-dl) - More reliable, currently working successfully
+3. **Strategy 3**: Enhanced yt-dlp with special arguments - Fallback with advanced options
+
+**Current Status**: Strategy 2 (youtube-dl-exec) is successfully downloading videos when other methods fail due to YouTube's 403 Forbidden restrictions.
 
 ### UI Dependencies
 - **@radix-ui/react-***: Accessible component primitives

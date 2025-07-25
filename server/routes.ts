@@ -5,6 +5,9 @@ import { videoAnalysisSchema, insertDownloadSchema } from "@shared/schema";
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
+import { v4 as uuidv4 } from "uuid";
+import ytdl from "ytdl-core";
+import youtubedl from "youtube-dl-exec";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Analyze YouTube video
@@ -38,15 +41,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       ytdlp.on("close", (code) => {
         if (code !== 0) {
-          console.error("yt-dlp error:", error);
-          res.status(400).json({ 
+          console.error("yt-dlp analysis error:", error);
+          res.status(500).json({ 
             message: "Failed to analyze video. Please check the URL and try again." 
           });
           return;
         }
 
         try {
-          const videoInfo = JSON.parse(output);
+          const lines = output.trim().split('\n');
+          const jsonLine = lines.find(line => line.trim().startsWith('{'));
+          
+          if (!jsonLine) {
+            throw new Error("No JSON data found in yt-dlp output");
+          }
+
+          const videoInfo = JSON.parse(jsonLine);
           
           const response = {
             title: videoInfo.title || "Unknown Title",
@@ -89,8 +99,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(download);
 
-      // Start download process in background
-      startDownload(download.id, downloadData.youtubeUrl, downloadData.format || "mp4");
+      // Start download process with multiple strategies
+      downloadWithMultipleStrategies(download.id, downloadData.youtubeUrl, downloadData.format || "mp4", downloadData.title);
       
     } catch (error) {
       console.error("Download creation error:", error);
@@ -145,7 +155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fileStream = fs.createReadStream(download.filePath);
       fileStream.pipe(res);
     } catch (error) {
-      res.status(500).json({ message: "Error downloading file" });
+      res.status(500).json({ message: "Internal server error" });
     }
   });
 
@@ -153,7 +163,163 @@ export async function registerRoutes(app: Express): Promise<Server> {
   return httpServer;
 }
 
-async function startDownload(downloadId: string, url: string, format: string) {
+// Strategy 1: Try ytdl-core (Node.js library)
+async function tryYtdlCore(downloadId: string, url: string, format: string, title: string): Promise<boolean> {
+  console.log("Trying ytdl-core strategy...");
+  
+  try {
+    if (!ytdl.validateURL(url)) {
+      console.log("Invalid URL for ytdl-core");
+      return false;
+    }
+
+    await storage.updateDownload(downloadId, { status: "downloading", progress: 10 });
+
+    const info = await ytdl.getInfo(url);
+    const videoFormat = ytdl.chooseFormat(info.formats, { quality: 'lowest' }); // Use lowest to avoid restrictions
+    
+    if (!videoFormat) {
+      console.log("No suitable format found with ytdl-core");
+      return false;
+    }
+
+    const sanitizedTitle = title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
+    const outputPath = path.join(process.cwd(), "downloads", `${sanitizedTitle}.${videoFormat.container}`);
+    
+    const stream = ytdl(url, { quality: 'lowest' });
+    const writeStream = fs.createWriteStream(outputPath);
+    
+    return new Promise((resolve) => {
+      stream.pipe(writeStream);
+      
+      stream.on('progress', (chunkLength, downloaded, total) => {
+        const progress = Math.round((downloaded / total) * 100);
+        storage.updateDownload(downloadId, { progress });
+      });
+      
+      writeStream.on('finish', async () => {
+        await storage.updateDownload(downloadId, { 
+          status: "completed", 
+          progress: 100,
+          filePath: outputPath
+        });
+        console.log("ytdl-core download completed successfully!");
+        resolve(true);
+      });
+      
+      stream.on('error', (error) => {
+        console.log("ytdl-core error:", error.message);
+        resolve(false);
+      });
+      
+      writeStream.on('error', (error) => {
+        console.log("ytdl-core write error:", error.message);
+        resolve(false);
+      });
+    });
+    
+  } catch (error) {
+    console.log("ytdl-core failed:", error);
+    return false;
+  }
+}
+
+// Strategy 2: Try youtube-dl-exec 
+async function tryYoutubeDlExec(downloadId: string, url: string, format: string, title: string): Promise<boolean> {
+  console.log("Trying youtube-dl-exec strategy...");
+  
+  try {
+    await storage.updateDownload(downloadId, { status: "downloading", progress: 20 });
+    
+    const sanitizedTitle = title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
+    const outputTemplate = path.join(process.cwd(), "downloads", `${sanitizedTitle}.%(ext)s`);
+    
+    const options = {
+      output: outputTemplate,
+      format: 'worst[ext=mp4]/worst', // Use worst quality to avoid restrictions
+      noWarnings: true,
+      extractorArgs: 'youtube:player_client=android'
+    };
+    
+    await youtubedl(url, options);
+    
+    // Find the downloaded file
+    const outputDir = path.join(process.cwd(), "downloads");
+    const files = fs.readdirSync(outputDir).filter(f => f.startsWith(sanitizedTitle) && !f.startsWith('.'));
+    
+    if (files.length > 0) {
+      const filePath = path.join(outputDir, files[0]);
+      await storage.updateDownload(downloadId, { 
+        status: "completed", 
+        progress: 100,
+        filePath: filePath
+      });
+      console.log("youtube-dl-exec download completed successfully!");
+      return true;
+    }
+    
+    return false;
+    
+  } catch (error) {
+    console.log("youtube-dl-exec failed:", error);
+    return false;
+  }
+}
+
+// Strategy 3: Enhanced yt-dlp with po token support
+async function tryEnhancedYtDlp(downloadId: string, url: string, format: string, title: string): Promise<boolean> {
+  console.log("Trying enhanced yt-dlp strategy...");
+  
+  try {
+    await storage.updateDownload(downloadId, { status: "downloading", progress: 30 });
+    
+    const sanitizedTitle = title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
+    const outputPath = path.join(process.cwd(), "downloads", `${sanitizedTitle}.%(ext)s`);
+    
+    const args = [
+      "--output", outputPath,
+      "--format", "worst[ext=mp4]/worst/bestaudio",
+      "--no-warnings",
+      "--user-agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+      "--extractor-args", "youtube:player_client=android,web_creator",
+      url
+    ];
+
+    return new Promise((resolve) => {
+      const ytdlp = spawn("yt-dlp", args);
+      
+      ytdlp.on("close", async (code) => {
+        if (code === 0) {
+          const outputDir = path.join(process.cwd(), "downloads");
+          const files = fs.readdirSync(outputDir).filter(f => f.startsWith(sanitizedTitle) && !f.startsWith('.'));
+          
+          if (files.length > 0) {
+            await storage.updateDownload(downloadId, { 
+              status: "completed", 
+              progress: 100,
+              filePath: path.join(outputDir, files[0])
+            });
+            console.log("Enhanced yt-dlp download completed successfully!");
+            resolve(true);
+          } else {
+            resolve(false);
+          }
+        } else {
+          resolve(false);
+        }
+      });
+      
+      ytdlp.on("error", () => resolve(false));
+    });
+    
+  } catch (error) {
+    console.log("Enhanced yt-dlp failed:", error);
+    return false;
+  }
+}
+
+// Main download function with multiple strategies
+async function downloadWithMultipleStrategies(downloadId: string, url: string, format: string, title: string) {
   try {
     await storage.updateDownload(downloadId, { status: "downloading", progress: 0 });
 
@@ -162,224 +328,81 @@ async function startDownload(downloadId: string, url: string, format: string) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    const outputTemplate = path.join(outputDir, "%(title)s.%(ext)s");
-    
-    let args = [
-      "--output", outputTemplate,
-      "--progress",
-      "--no-warnings",
-      "--prefer-free-formats",
-      "--retries", "5",
-      "--retry-sleep", "1",
-      "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "--add-header", "Accept-Language:en-US,en;q=0.9",
-      "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "--extractor-args", "youtube:player_client=web,android",
-      "--sleep-interval", "1",
-      "--max-sleep-interval", "5",
-      url
+    // Try strategies in order of reliability
+    const strategies = [
+      () => tryYtdlCore(downloadId, url, format, title),
+      () => tryYoutubeDlExec(downloadId, url, format, title), 
+      () => tryEnhancedYtDlp(downloadId, url, format, title)
     ];
 
-    // Add format-specific arguments with higher quality options
-    if (format === "mp3") {
-      args.push("--extract-audio", "--audio-format", "mp3", "--audio-quality", "0");
-    } else if (format === "mp4-1080p") {
-      args.push("--format", "(best[height<=1080]/best)[ext=mp4]/(best[height<=1080]/best)");
-    } else if (format === "mp4-720p") {
-      args.push("--format", "(best[height<=720]/best)[ext=mp4]/(best[height<=720]/best)");
-    } else if (format === "mp4-480p") {
-      args.push("--format", "(best[height<=480]/best)[ext=mp4]/(best[height<=480]/best)");
-    } else if (format === "mp4") {
-      args.push("--format", "best[ext=mp4]/best");
-    } else if (format === "webm") {
-      args.push("--format", "best[ext=webm]/best");
-    } else {
-      // Default fallback
-      args.push("--format", "best");
+    console.log(`Starting download for: ${title}`);
+    console.log(`URL: ${url}`);
+    console.log(`Format: ${format}`);
+
+    for (let i = 0; i < strategies.length; i++) {
+      console.log(`Trying strategy ${i + 1}/${strategies.length}...`);
+      
+      try {
+        const success = await strategies[i]();
+        if (success) {
+          console.log(`Strategy ${i + 1} succeeded!`);
+          return;
+        }
+        console.log(`Strategy ${i + 1} failed, trying next...`);
+      } catch (error) {
+        console.log(`Strategy ${i + 1} threw error:`, error);
+      }
+
+      // Wait a bit between strategies
+      if (i < strategies.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
     }
 
-    const ytdlp = spawn("yt-dlp", args);
-
-    let lastProgress = 0;
-
-    ytdlp.stdout.on("data", (data) => {
-      const output = data.toString();
-      
-      // Parse progress from yt-dlp output
-      const progressMatch = output.match(/(\d+(?:\.\d+)?)%/);
-      if (progressMatch) {
-        const progress = Math.round(parseFloat(progressMatch[1]));
-        if (progress > lastProgress) {
-          lastProgress = progress;
-          storage.updateDownload(downloadId, { progress });
-        }
-      }
-    });
-
-    ytdlp.stderr.on("data", (data) => {
-      const output = data.toString();
-      console.error("yt-dlp stderr:", output);
-      
-      // Also check for progress in stderr output
-      const progressMatch = output.match(/(\d+(?:\.\d+)?)%/);
-      if (progressMatch) {
-        const progress = Math.round(parseFloat(progressMatch[1]));
-        if (progress > lastProgress) {
-          lastProgress = progress;
-          storage.updateDownload(downloadId, { progress });
-        }
-      }
-    });
-
-    ytdlp.on("close", async (code) => {
-      if (code === 0) {
-        // Check if file actually exists
-        const files = fs.readdirSync(outputDir).filter(f => !f.startsWith('.'));
-        if (files.length > 0) {
-          await storage.updateDownload(downloadId, { 
-            status: "completed", 
-            progress: 100,
-            filePath: path.join(outputDir, files[files.length - 1])
-          });
-        } else {
-          await storage.updateDownload(downloadId, { 
-            status: "failed", 
-            progress: 0 
-          });
-        }
-      } else {
-        console.error(`yt-dlp process exited with code ${code}`);
-        await storage.updateDownload(downloadId, { 
-          status: "failed", 
-          progress: 0 
-        });
-      }
-    });
-
-  } catch (error) {
-    console.error("Download error:", error);
+    // All strategies failed
+    console.log("All download strategies failed");
     await storage.updateDownload(downloadId, { 
       status: "failed", 
       progress: 0 
     });
 
-    // Try multiple alternative approaches
-    const alternativeStrategies = [
-      // Strategy 1: Use web player client with different format
-      {
-        name: "Web client with audio-only fallback",
-        args: [
-          "--output", path.join(process.cwd(), "downloads", "%(title)s.%(ext)s"),
-          "--format", "worst/bestaudio",
-          "--no-warnings",
-          "--extractor-args", "youtube:player_client=web",
-          "--user-agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-          url
-        ]
-      },
-      // Strategy 2: Use iOS client
-      {
-        name: "iOS client",
-        args: [
-          "--output", path.join(process.cwd(), "downloads", "%(title)s.%(ext)s"),
-          "--format", "worst",
-          "--no-warnings", 
-          "--extractor-args", "youtube:player_client=ios",
-          url
-        ]
-      },
-      // Strategy 3: Use embedded player
-      {
-        name: "Embedded player",
-        args: [
-          "--output", path.join(process.cwd(), "downloads", "%(title)s.%(ext)s"),
-          "--format", "worst",
-          "--no-warnings",
-          "--extractor-args", "youtube:player_client=web_embedded",
-          url
-        ]
-      }
-    ];
-
-    let strategyIndex = 0;
-    
-    const tryNextStrategy = async () => {
-      if (strategyIndex >= alternativeStrategies.length) {
-        console.log("All strategies failed");
-        await storage.updateDownload(downloadId, { 
-          status: "failed", 
-          progress: 0 
-        });
-        return;
-      }
-
-      const strategy = alternativeStrategies[strategyIndex];
-      console.log(`Trying strategy ${strategyIndex + 1}: ${strategy.name}`);
-      await storage.updateDownload(downloadId, { status: "downloading", progress: 0 });
-      
-      try {
-        const fallbackYtdlp = spawn("yt-dlp", strategy.args);
-        
-        fallbackYtdlp.on("close", async (code) => {
-          if (code === 0) {
-            const outputDir = path.join(process.cwd(), "downloads");
-            const files = fs.readdirSync(outputDir).filter(f => !f.startsWith('.'));
-            if (files.length > 0) {
-              await storage.updateDownload(downloadId, { 
-                status: "completed", 
-                progress: 100,
-                filePath: path.join(outputDir, files[files.length - 1])
-              });
-            } else {
-              strategyIndex++;
-              setTimeout(tryNextStrategy, 1000);
-            }
-          } else {
-            strategyIndex++;
-            setTimeout(tryNextStrategy, 1000);
-          }
-        });
-
-        fallbackYtdlp.on("error", () => {
-          strategyIndex++;
-          setTimeout(tryNextStrategy, 1000);
-        });
-        
-      } catch (strategyError) {
-        console.error(`Strategy ${strategy.name} failed:`, strategyError);
-        strategyIndex++;
-        setTimeout(tryNextStrategy, 1000);
-      }
-    };
-
-    tryNextStrategy();
+  } catch (error) {
+    console.error("Download process error:", error);
+    await storage.updateDownload(downloadId, { 
+      status: "failed", 
+      progress: 0 
+    });
   }
 }
 
+// Helper functions for date and file size formatting
 function formatDate(dateString: string): string {
-  if (!dateString || dateString.length !== 8) return "Unknown";
-  
-  const year = dateString.substring(0, 4);
-  const month = dateString.substring(4, 6);
-  const day = dateString.substring(6, 8);
-  
-  const date = new Date(`${year}-${month}-${day}`);
-  const now = new Date();
-  const diffTime = Math.abs(now.getTime() - date.getTime());
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  
-  if (diffDays === 1) return "1 day ago";
-  if (diffDays < 30) return `${diffDays} days ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
-  return `${Math.floor(diffDays / 365)} years ago`;
+  if (dateString.length === 8) {
+    const year = dateString.substring(0, 4);
+    const month = dateString.substring(4, 6);
+    const day = dateString.substring(6, 8);
+    const date = new Date(`${year}-${month}-${day}`);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 30) {
+      return `${diffDays} days ago`;
+    } else if (diffDays < 365) {
+      const months = Math.floor(diffDays / 30);
+      return `${months} month${months > 1 ? 's' : ''} ago`;
+    } else {
+      const years = Math.floor(diffDays / 365);
+      return `${years} year${years > 1 ? 's' : ''} ago`;
+    }
+  }
+  return dateString;
 }
 
 function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 Bytes";
-  
+  if (bytes === 0) return '0 Bytes';
   const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
