@@ -18,6 +18,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "--no-download",
         "--no-warnings",
         "--prefer-free-formats",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "--add-header", "Accept-Language:en-US,en;q=0.9",
+        "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "--extractor-args", "youtube:player_client=web",
         url
       ]);
 
@@ -120,6 +124,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Download completed file
+  app.get("/api/download/:id/file", async (req, res) => {
+    try {
+      const download = await storage.getDownload(req.params.id);
+      if (!download || download.status !== "completed" || !download.filePath) {
+        res.status(404).json({ message: "File not found or download not completed" });
+        return;
+      }
+
+      if (!fs.existsSync(download.filePath)) {
+        res.status(404).json({ message: "File not found on disk" });
+        return;
+      }
+
+      const fileName = path.basename(download.filePath);
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      
+      const fileStream = fs.createReadStream(download.filePath);
+      fileStream.pipe(res);
+    } catch (error) {
+      res.status(500).json({ message: "Error downloading file" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
@@ -140,7 +169,14 @@ async function startDownload(downloadId: string, url: string, format: string) {
       "--progress",
       "--no-warnings",
       "--prefer-free-formats",
-      "--retries", "3",
+      "--retries", "5",
+      "--retry-sleep", "1",
+      "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "--add-header", "Accept-Language:en-US,en;q=0.9",
+      "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "--extractor-args", "youtube:player_client=web,android",
+      "--sleep-interval", "1",
+      "--max-sleep-interval", "5",
       url
     ];
 
@@ -148,15 +184,18 @@ async function startDownload(downloadId: string, url: string, format: string) {
     if (format === "mp3") {
       args.push("--extract-audio", "--audio-format", "mp3", "--audio-quality", "0");
     } else if (format === "mp4-1080p") {
-      args.push("--format", "best[height<=1080][ext=mp4]/best[height<=1080]/best[ext=mp4]/best");
+      args.push("--format", "(best[height<=1080]/best)[ext=mp4]/(best[height<=1080]/best)");
     } else if (format === "mp4-720p") {
-      args.push("--format", "best[height<=720][ext=mp4]/best[height<=720]/best[ext=mp4]/best");
+      args.push("--format", "(best[height<=720]/best)[ext=mp4]/(best[height<=720]/best)");
     } else if (format === "mp4-480p") {
-      args.push("--format", "best[height<=480][ext=mp4]/best[height<=480]/best[ext=mp4]/best");
+      args.push("--format", "(best[height<=480]/best)[ext=mp4]/(best[height<=480]/best)");
     } else if (format === "mp4") {
       args.push("--format", "best[ext=mp4]/best");
     } else if (format === "webm") {
       args.push("--format", "best[ext=webm]/best");
+    } else {
+      // Default fallback
+      args.push("--format", "best");
     }
 
     const ytdlp = spawn("yt-dlp", args);
@@ -194,11 +233,22 @@ async function startDownload(downloadId: string, url: string, format: string) {
 
     ytdlp.on("close", async (code) => {
       if (code === 0) {
-        await storage.updateDownload(downloadId, { 
-          status: "completed", 
-          progress: 100 
-        });
+        // Check if file actually exists
+        const files = fs.readdirSync(outputDir).filter(f => !f.startsWith('.'));
+        if (files.length > 0) {
+          await storage.updateDownload(downloadId, { 
+            status: "completed", 
+            progress: 100,
+            filePath: path.join(outputDir, files[files.length - 1])
+          });
+        } else {
+          await storage.updateDownload(downloadId, { 
+            status: "failed", 
+            progress: 0 
+          });
+        }
       } else {
+        console.error(`yt-dlp process exited with code ${code}`);
         await storage.updateDownload(downloadId, { 
           status: "failed", 
           progress: 0 
@@ -212,6 +262,97 @@ async function startDownload(downloadId: string, url: string, format: string) {
       status: "failed", 
       progress: 0 
     });
+
+    // Try multiple alternative approaches
+    const alternativeStrategies = [
+      // Strategy 1: Use web player client with different format
+      {
+        name: "Web client with audio-only fallback",
+        args: [
+          "--output", path.join(process.cwd(), "downloads", "%(title)s.%(ext)s"),
+          "--format", "worst/bestaudio",
+          "--no-warnings",
+          "--extractor-args", "youtube:player_client=web",
+          "--user-agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+          url
+        ]
+      },
+      // Strategy 2: Use iOS client
+      {
+        name: "iOS client",
+        args: [
+          "--output", path.join(process.cwd(), "downloads", "%(title)s.%(ext)s"),
+          "--format", "worst",
+          "--no-warnings", 
+          "--extractor-args", "youtube:player_client=ios",
+          url
+        ]
+      },
+      // Strategy 3: Use embedded player
+      {
+        name: "Embedded player",
+        args: [
+          "--output", path.join(process.cwd(), "downloads", "%(title)s.%(ext)s"),
+          "--format", "worst",
+          "--no-warnings",
+          "--extractor-args", "youtube:player_client=web_embedded",
+          url
+        ]
+      }
+    ];
+
+    let strategyIndex = 0;
+    
+    const tryNextStrategy = async () => {
+      if (strategyIndex >= alternativeStrategies.length) {
+        console.log("All strategies failed");
+        await storage.updateDownload(downloadId, { 
+          status: "failed", 
+          progress: 0 
+        });
+        return;
+      }
+
+      const strategy = alternativeStrategies[strategyIndex];
+      console.log(`Trying strategy ${strategyIndex + 1}: ${strategy.name}`);
+      await storage.updateDownload(downloadId, { status: "downloading", progress: 0 });
+      
+      try {
+        const fallbackYtdlp = spawn("yt-dlp", strategy.args);
+        
+        fallbackYtdlp.on("close", async (code) => {
+          if (code === 0) {
+            const outputDir = path.join(process.cwd(), "downloads");
+            const files = fs.readdirSync(outputDir).filter(f => !f.startsWith('.'));
+            if (files.length > 0) {
+              await storage.updateDownload(downloadId, { 
+                status: "completed", 
+                progress: 100,
+                filePath: path.join(outputDir, files[files.length - 1])
+              });
+            } else {
+              strategyIndex++;
+              setTimeout(tryNextStrategy, 1000);
+            }
+          } else {
+            strategyIndex++;
+            setTimeout(tryNextStrategy, 1000);
+          }
+        });
+
+        fallbackYtdlp.on("error", () => {
+          strategyIndex++;
+          setTimeout(tryNextStrategy, 1000);
+        });
+        
+      } catch (strategyError) {
+        console.error(`Strategy ${strategy.name} failed:`, strategyError);
+        strategyIndex++;
+        setTimeout(tryNextStrategy, 1000);
+      }
+    };
+
+    tryNextStrategy();
   }
 }
 

@@ -151,7 +151,7 @@ export default function Home() {
       {/* Header */}
       <header className="py-8 text-center border-b border-pure-white">
         <h1 className="text-4xl font-bold mb-2 text-pure-white">YouTube Downloader</h1>
-        <p className="text-gray-300 text-lg">Download videos in maximum quality with audio</p>
+        <p className="text-gray-300 text-lg">Download YouTube videos - Note: Some videos may be restricted by YouTube's anti-bot protection</p>
       </header>
 
       {/* Main Content */}
@@ -340,20 +340,20 @@ export default function Home() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium text-pure-white">
-                        {isDownloading ? "Downloading..." : 
+                        {isDownloading ? "Attempting download with multiple methods..." : 
                          isDownloadCompleted ? "Download completed!" :
                          isDownloadFailed ? "Download failed" : "Processing..."}
                       </span>
-                      <span className="text-sm text-gray-300">{downloadStatus.progress}%</span>
+                      <span className="text-sm text-gray-300">{downloadStatus.progress || 0}%</span>
                     </div>
                     <Progress 
-                      value={downloadStatus.progress} 
+                      value={downloadStatus.progress || 0} 
                       className="w-full bg-gray-700"
                     />
                     {isDownloading && (
                       <div className="flex justify-between text-xs text-gray-400">
-                        <span>Downloading {selectedFormat.toUpperCase()} format</span>
-                        <span>{downloadStatus.progress < 100 ? "In progress..." : "Finalizing..."}</span>
+                        <span>Trying different strategies to bypass YouTube restrictions</span>
+                        <span>This may take a moment...</span>
                       </div>
                     )}
                   </div>
@@ -362,24 +362,49 @@ export default function Home() {
                 {/* Success/Error Messages */}
                 {isDownloadCompleted && (
                   <div className="p-4 bg-success-green bg-opacity-10 border border-success-green rounded-lg">
-                    <div className="flex items-center">
-                      <CheckCircle className="text-success-green mr-3 h-5 w-5" />
-                      <div>
-                        <div className="text-success-green font-medium">Download completed successfully!</div>
-                        <div className="text-sm text-gray-300 mt-1">File saved to your Downloads folder</div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <CheckCircle className="text-success-green mr-3 h-5 w-5" />
+                        <div>
+                          <div className="text-success-green font-medium">Download completed successfully!</div>
+                          <div className="text-sm text-gray-300 mt-1">File is ready for download</div>
+                        </div>
                       </div>
+                      <Button
+                        onClick={() => {
+                          if (downloadStatus?.id) {
+                            window.open(`/api/download/${downloadStatus.id}/file`, '_blank');
+                          }
+                        }}
+                        className="bg-success-green text-void-black hover:bg-green-400 font-semibold"
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        Download File
+                      </Button>
                     </div>
                   </div>
                 )}
 
                 {isDownloadFailed && (
                   <div className="p-4 bg-error-red bg-opacity-10 border border-error-red rounded-lg">
-                    <div className="flex items-center">
-                      <AlertTriangle className="text-error-red mr-3 h-5 w-5" />
-                      <div>
-                        <div className="text-error-red font-medium">Download failed</div>
-                        <div className="text-sm text-gray-300 mt-1">Please try again or check your connection</div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <AlertTriangle className="text-error-red mr-3 h-5 w-5" />
+                        <div>
+                          <div className="text-error-red font-medium">Download failed</div>
+                          <div className="text-sm text-gray-300 mt-1">YouTube blocked the download. This happens due to anti-bot protection. Try a different video or wait a moment.</div>
+                        </div>
                       </div>
+                      <Button
+                        onClick={() => {
+                          setActiveDownload(null);
+                          handleDownload();
+                        }}
+                        variant="outline"
+                        className="border-error-red text-error-red hover:bg-error-red hover:text-void-black"
+                      >
+                        Try Again
+                      </Button>
                     </div>
                   </div>
                 )}
