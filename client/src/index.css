@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(0, 0%, 0%);
+  --foreground: hsl(0, 0%, 100%);
+  --muted: hsl(0, 0%, 20%);
+  --muted-foreground: hsl(0, 0%, 60%);
+  --popover: hsl(0, 0%, 13%);
+  --popover-foreground: hsl(0, 0%, 100%);
+  --card: hsl(0, 0%, 13%);
+  --card-foreground: hsl(0, 0%, 100%);
+  --border: hsl(0, 0%, 26%);
+  --input: hsl(0, 0%, 13%);
+  --primary: hsl(120, 100%, 50%);
+  --primary-foreground: hsl(0, 0%, 0%);
+  --secondary: hsl(0, 0%, 13%);
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --accent: hsl(0, 0%, 13%);
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(0, 84%, 60%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --ring: hsl(0, 0%, 100%);
+  --radius: 0.5rem;
+  
+  /* Custom void black theme colors */
+  --void-black: hsl(0, 0%, 0%);
+  --pure-white: hsl(0, 0%, 100%);
+  --dark-gray: hsl(0, 0%, 20%);
+  --success-green: hsl(120, 100%, 50%);
+  --error-red: hsl(0, 100%, 50%);
+  --warning-yellow: hsl(60, 100%, 50%);
+}
+
+.dark {
+  --background: hsl(0, 0%, 0%);
+  --foreground: hsl(0, 0%, 100%);
+  --muted: hsl(0, 0%, 20%);
+  --muted-foreground: hsl(0, 0%, 60%);
+  --popover: hsl(0, 0%, 13%);
+  --popover-foreground: hsl(0, 0%, 100%);
+  --card: hsl(0, 0%, 13%);
+  --card-foreground: hsl(0, 0%, 100%);
+  --border: hsl(0, 0%, 26%);
+  --input: hsl(0, 0%, 13%);
+  --primary: hsl(120, 100%, 50%);
+  --primary-foreground: hsl(0, 0%, 0%);
+  --secondary: hsl(0, 0%, 13%);
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --accent: hsl(0, 0%, 13%);
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(0, 84%, 60%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --ring: hsl(0, 0%, 100%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-void-black text-pure-white;
+    background-color: hsl(0, 0%, 0%);
+    color: hsl(0, 0%, 100%);
+  }
+
+  html {
+    @apply bg-void-black;
+    background-color: hsl(0, 0%, 0%);
+  }
+}
+
+@layer utilities {
+  .bg-void-black {
+    background-color: hsl(0, 0%, 0%);
+  }
+  
+  .text-pure-white {
+    color: hsl(0, 0%, 100%);
+  }
+  
+  .bg-dark-gray {
+    background-color: hsl(0, 0%, 20%);
+  }
+  
+  .text-success-green {
+    color: hsl(120, 100%, 50%);
+  }
+  
+  .bg-success-green {
+    background-color: hsl(120, 100%, 50%);
+  }
+  
+  .text-error-red {
+    color: hsl(0, 100%, 50%);
+  }
+  
+  .bg-error-red {
+    background-color: hsl(0, 100%, 50%);
+  }
+  
+  .border-dark-gray {
+    border-color: hsl(0, 0%, 26%);
+  }
+}
