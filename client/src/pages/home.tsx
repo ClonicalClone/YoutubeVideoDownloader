@@ -90,7 +90,7 @@ export default function Home() {
   });
 
   // Poll download status
-  const { data: downloadStatus } = useQuery({
+  const { data: downloadStatus } = useQuery<DownloadData>({
     queryKey: ["/api/download", activeDownload],
     enabled: !!activeDownload,
     refetchInterval: activeDownload ? 1000 : false,

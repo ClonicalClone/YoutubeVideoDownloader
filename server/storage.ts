@@ -47,6 +47,12 @@ export class MemStorage implements IStorage {
       progress: 0,
       filePath: null,
       createdAt: new Date(),
+      format: insertDownload.format || "mp4",
+      duration: insertDownload.duration || null,
+      thumbnail: insertDownload.thumbnail || null,
+      channel: insertDownload.channel || null,
+      views: insertDownload.views || null,
+      publishDate: insertDownload.publishDate || null,
     };
     this.downloads.set(id, download);
     return download;

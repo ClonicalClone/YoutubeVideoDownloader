@@ -39,6 +39,8 @@ export const insertDownloadSchema = createInsertSchema(downloads).pick({
   views: true,
   publishDate: true,
   format: true,
+}).extend({
+  format: z.string().default("mp4"),
 });
 
 export const videoAnalysisSchema = z.object({

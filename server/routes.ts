@@ -84,7 +84,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(download);
 
       // Start download process in background
-      startDownload(download.id, downloadData.youtubeUrl, downloadData.format);
+      startDownload(download.id, downloadData.youtubeUrl, downloadData.format || "mp4");
       
     } catch (error) {
       console.error("Download creation error:", error);
